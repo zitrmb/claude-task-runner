@@ -136,17 +136,32 @@ async function executeTask(task, broadcast) {
   broadcast('terminal:output', { taskId: task.id, text: '[Phase 1/4] PLAN ERSTELLEN\n' });
   broadcast('terminal:output', { taskId: task.id, text: '----------------------------------------\n' });
 
+  // Prüfe ob Extended Thinking angefordert (via "ultrathink" in description)
+  const useExtendedThinking = task.description.toLowerCase().includes('ultrathink') ||
+                               task.priority === 'high';
+
   const planPrompt = `
-Analysiere diese Aufgabe und erstelle einen Schritt-für-Schritt Plan.
-NOCH KEINEN CODE SCHREIBEN!
+Du bist ein erfahrener Software-Entwickler. Analysiere diese Aufgabe gründlich.
 
-Aufgabe: ${task.description}
-Typ: ${task.type}
+## Aufgabe
+${task.description.replace(/ultrathink/gi, '').trim()}
 
-Antworte NUR mit dem Plan als nummerierte Liste.
+## Typ
+${task.type}
+
+## Anweisungen
+1. Analysiere zuerst die bestehende Codebase mit Glob und Grep
+2. Verstehe die Architektur und Patterns die verwendet werden
+3. Erstelle einen detaillierten Schritt-für-Schritt Plan
+4. NOCH KEINEN CODE SCHREIBEN - nur analysieren und planen
+
+Antworte mit:
+1. Kurze Analyse des bestehenden Codes (relevante Dateien)
+2. Nummerierter Plan mit konkreten Schritten
+3. Potenzielle Risiken oder Abhängigkeiten
 `;
 
-  const planResult = await runClaude(planPrompt, repoPath, task.id, broadcast);
+  const planResult = await runClaude(planPrompt, repoPath, task.id, broadcast, useExtendedThinking);
 
   if (!planResult.success) {
     return handleFailure(task, 'Plan-Erstellung fehlgeschlagen', broadcast);
@@ -158,18 +173,27 @@ Antworte NUR mit dem Plan als nummerierte Liste.
   broadcast('terminal:output', { taskId: task.id, text: '----------------------------------------\n' });
 
   const executePrompt = `
-Führe jetzt den Plan aus und implementiere die Änderungen.
+Du implementierst jetzt die geplanten Änderungen.
 
-Aufgabe: ${task.description}
-Branch: ${branchName}
+## Aufgabe
+${task.description.replace(/ultrathink/gi, '').trim()}
 
-Wichtig:
-- Schreibe sauberen, getesteten Code
-- Committe NICHT selbst, das macht das System
-- Wenn du fertig bist, antworte mit "IMPLEMENTATION_COMPLETE"
+## Branch
+${branchName}
+
+## Wichtige Regeln
+1. Folge dem erstellten Plan Schritt für Schritt
+2. Schreibe sauberen, lesbaren Code
+3. Behalte bestehende Code-Patterns bei
+4. Füge Kommentare nur hinzu wo nötig (nicht überflüssig)
+5. Committe NICHT selbst - das macht das System
+6. Teste deine Änderungen mental durch
+
+## Wenn fertig
+Antworte mit "IMPLEMENTATION_COMPLETE" und einer kurzen Zusammenfassung was geändert wurde.
 `;
 
-  const execResult = await runClaude(executePrompt, repoPath, task.id, broadcast);
+  const execResult = await runClaude(executePrompt, repoPath, task.id, broadcast, useExtendedThinking);
 
   if (!execResult.success) {
     return handleFailure(task, 'Implementation fehlgeschlagen', broadcast);
@@ -192,14 +216,23 @@ Wichtig:
       broadcast('terminal:output', { taskId: task.id, text: '----------------------------------------\n' });
 
       const fixPrompt = `
-Die Tests sind fehlgeschlagen. Behebe die Fehler:
+## Test-Fehler beheben
 
+Die Tests sind fehlgeschlagen. Analysiere die Fehler und behebe sie.
+
+### Fehler-Output:
 ${testResult.output}
 
-Wenn gefixt, antworte mit "FIXES_COMPLETE"
+### Anweisungen:
+1. Analysiere die Fehlermeldungen genau
+2. Finde die Ursache des Problems
+3. Implementiere einen Fix
+4. Stelle sicher, dass der Fix keine anderen Tests bricht
+
+Wenn gefixt, antworte mit "FIXES_COMPLETE" und erkläre kurz was geändert wurde.
 `;
 
-      await runClaude(fixPrompt, repoPath, task.id, broadcast);
+      await runClaude(fixPrompt, repoPath, task.id, broadcast, true);
       updateTask(task.id, { retries: task.retries + 1 });
 
       // Rekursiv nochmal testen
@@ -261,18 +294,24 @@ Wenn gefixt, antworte mit "FIXES_COMPLETE"
   notifySuccess(task);
 }
 
-// Task-Timeout: 10 Minuten
-const TASK_TIMEOUT_MS = 10 * 60 * 1000;
+// Task-Timeout: 15 Minuten (erhöht für extended thinking)
+const TASK_TIMEOUT_MS = 15 * 60 * 1000;
 
-async function runClaude(prompt, cwd, taskId, broadcast) {
+async function runClaude(prompt, cwd, taskId, broadcast, useExtendedThinking = false) {
   return new Promise((resolve) => {
-    // Args für claude ohne shell substitution
+    // Args für claude
     const args = [
       '--output-format', 'stream-json',
       '--verbose',
       '--dangerously-skip-permissions',
       '--max-turns', String(CONFIG.MAX_TURNS)
     ];
+
+    // Extended Thinking Mode hinzufügen wenn angefordert
+    if (useExtendedThinking && CONFIG.EXTENDED_THINKING) {
+      args.push('--model', 'sonnet');  // Sonnet mit Extended Thinking
+      broadcast('terminal:output', { taskId, text: `[Claude] Extended Thinking aktiviert (Budget: ${CONFIG.THINKING_BUDGET})\n` });
+    }
 
     let claude;
     let timeoutId;

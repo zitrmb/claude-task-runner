@@ -6,7 +6,16 @@ export const CONFIG = {
   LOGS_DIR: './data/logs',
   MAX_RETRIES: 3,
   POLL_INTERVAL: 2000,  // ms
-  MAX_TURNS: 20
+  MAX_TURNS: 30,  // Erhöht für komplexere Tasks
+
+  // Model Settings
+  DEFAULT_MODEL: 'sonnet',  // sonnet, opus, haiku
+  EXTENDED_THINKING: true,  // Extended Thinking für komplexe Analysen
+  THINKING_BUDGET: 10000,   // Token Budget für Extended Thinking
+
+  // Performance Settings
+  CONTEXT_CACHE: true,      // Projekt-Kontext cachen
+  PARALLEL_TOOLS: true,     // Parallele Tool-Ausführung erlauben
 };
 
 export const ALLOWED_TOOLS = [

@@ -18,27 +18,31 @@ function validatePath(inputPath) {
   if (!inputPath || typeof inputPath !== 'string') {
     return { valid: false, error: 'Pfad erforderlich' };
   }
-  if (inputPath.length > MAX_PATH_LENGTH) {
+
+  // Entferne führende/trailing Quotes (defensiv)
+  let cleanPath = inputPath.trim().replace(/^['"]|['"]$/g, '');
+
+  if (cleanPath.length > MAX_PATH_LENGTH) {
     return { valid: false, error: 'Pfad zu lang' };
   }
 
   // Normalisiere und prüfe auf Path Traversal
-  const normalized = normalize(inputPath);
+  const normalized = normalize(cleanPath);
   if (normalized.includes('..')) {
     return { valid: false, error: 'Path Traversal nicht erlaubt' };
   }
 
   // Prüfe ob absoluter Pfad
-  if (!inputPath.startsWith('/')) {
+  if (!cleanPath.startsWith('/')) {
     return { valid: false, error: 'Nur absolute Pfade erlaubt' };
   }
 
   // Prüfe ob Verzeichnis existiert
   try {
-    if (!existsSync(inputPath)) {
+    if (!existsSync(cleanPath)) {
       return { valid: false, error: 'Verzeichnis existiert nicht' };
     }
-    const stat = statSync(inputPath);
+    const stat = statSync(cleanPath);
     if (!stat.isDirectory()) {
       return { valid: false, error: 'Pfad ist kein Verzeichnis' };
     }
@@ -46,7 +50,7 @@ function validatePath(inputPath) {
     return { valid: false, error: 'Pfad nicht zugreifbar' };
   }
 
-  return { valid: true };
+  return { valid: true, cleanPath };
 }
 
 const app = express();
@@ -136,7 +140,8 @@ app.post('/api/repos', (req, res) => {
     return res.status(400).json({ error: pathValidation.error });
   }
 
-  addRepo(name, path);
+  // Bereinigten Pfad verwenden
+  addRepo(name, pathValidation.cleanPath);
   res.json({ success: true });
 });
 
@@ -178,7 +183,8 @@ app.post('/api/tasks', (req, res) => {
     return res.status(400).json({ error: `Beschreibung zu lang (max ${MAX_DESCRIPTION_LENGTH} Zeichen)` });
   }
 
-  const task = addTask(repo, type, description, priority);
+  // Bereinigten Pfad verwenden
+  const task = addTask(pathValidation.cleanPath, type, description, priority);
   broadcast('task:added', task);
   res.json(task);
 });

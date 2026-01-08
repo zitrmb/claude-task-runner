@@ -47,7 +47,10 @@
       <section class="panel" id="terminal-panel">
         <div class="terminal-header">
           <h2>Live Output</h2>
-          <button onclick="clearTerminal()" class="btn-clear">Clear</button>
+          <div>
+            <button onclick="abortTask()" class="btn-abort">⏹ Abort</button>
+            <button onclick="clearTerminal()" class="btn-clear">Clear</button>
+          </div>
         </div>
         <div id="terminal"></div>
       </section>

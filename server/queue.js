@@ -1,11 +1,51 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'fs';
 import { CONFIG } from './config.js';
 
 let queue = [];
 
 export function initQueue() {
   if (existsSync(CONFIG.QUEUE_FILE)) {
-    queue = JSON.parse(readFileSync(CONFIG.QUEUE_FILE, 'utf-8'));
+    try {
+      const content = readFileSync(CONFIG.QUEUE_FILE, 'utf-8');
+      queue = JSON.parse(content);
+
+      // Validiere Array-Struktur
+      if (!Array.isArray(queue)) {
+        throw new Error('Queue ist kein Array');
+      }
+
+      console.log(`[Queue] ${queue.length} Tasks geladen`);
+
+      // Crash-Recovery: "running" Tasks auf "pending" zurücksetzen
+      let recovered = 0;
+      for (const task of queue) {
+        if (task.status === 'running' || task.status === 'testing') {
+          task.status = 'pending';
+          task.retries = 0;
+          recovered++;
+        }
+      }
+      if (recovered > 0) {
+        saveQueue();
+        console.log(`[Queue] ${recovered} steckengebliebene Tasks wiederhergestellt`);
+      }
+    } catch (err) {
+      console.error(`[Queue] FEHLER beim Laden: ${err.message}`);
+
+      // Backup der korrupten Datei erstellen
+      const backupPath = `${CONFIG.QUEUE_FILE}.corrupt.${Date.now()}`;
+      try {
+        copyFileSync(CONFIG.QUEUE_FILE, backupPath);
+        console.log(`[Queue] Backup erstellt: ${backupPath}`);
+      } catch (e) {
+        // Backup fehlgeschlagen, ignorieren
+      }
+
+      // Leere Queue starten
+      queue = [];
+      saveQueue();
+      console.log('[Queue] Leere Queue initialisiert');
+    }
   } else {
     saveQueue();
   }

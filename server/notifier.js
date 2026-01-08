@@ -1,25 +1,40 @@
-import { exec } from 'child_process';
+import { execFile, exec } from 'child_process';
+
+// Escape für AppleScript-Strings (Backslash und Quotes)
+function escapeAppleScript(str) {
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, ' ')
+    .replace(/\r/g, '');
+}
 
 export function notifyFailure(task) {
   const title = 'Claude Task Runner';
-  const message = `Task "${task.description.substring(0, 50)}..." ist 3x fehlgeschlagen!`;
+  const desc = escapeAppleScript(task.description.substring(0, 50));
+  const message = `Task "${desc}..." ist 3x fehlgeschlagen!`;
 
-  // macOS Notification
+  // macOS Notification - execFile statt exec (kein Shell)
   const script = `display notification "${message}" with title "${title}" sound name "Basso"`;
-  exec(`osascript -e '${script}'`);
+  execFile('osascript', ['-e', script], (err) => {
+    if (err) console.error('[Notification] Error:', err.message);
+  });
 
-  // Zusätzlicher Sound
-  exec('afplay /System/Library/Sounds/Basso.aiff');
+  // Sound abspielen
+  execFile('afplay', ['/System/Library/Sounds/Basso.aiff']);
 
   console.log(`[Notification] ${message}`);
 }
 
 export function notifySuccess(task) {
   const title = 'Claude Task Runner';
-  const message = `Task "${task.description.substring(0, 50)}..." abgeschlossen!`;
+  const desc = escapeAppleScript(task.description.substring(0, 50));
+  const message = `Task "${desc}..." abgeschlossen!`;
 
   const script = `display notification "${message}" with title "${title}" sound name "Glass"`;
-  exec(`osascript -e '${script}'`);
+  execFile('osascript', ['-e', script], (err) => {
+    if (err) console.error('[Notification] Error:', err.message);
+  });
 
   console.log(`[Notification] ${message}`);
 }

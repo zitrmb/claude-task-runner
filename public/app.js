@@ -3,9 +3,24 @@ let ws;
 let repos = [];
 let queue = [];
 
-// WebSocket verbinden
+// XSS-Schutz: HTML-Entities escapen
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// WebSocket verbinden mit Exponential Backoff
+let wsReconnectDelay = 1000;
+const WS_MAX_DELAY = 30000;
+
 function connectWebSocket() {
   ws = new WebSocket(`ws://${location.host}`);
+
+  ws.onopen = () => {
+    console.log('[WS] Verbunden');
+    wsReconnectDelay = 1000; // Reset delay on successful connection
+  };
 
   ws.onmessage = (event) => {
     const { type, data } = JSON.parse(event.data);
@@ -29,24 +44,37 @@ function connectWebSocket() {
   };
 
   ws.onclose = () => {
-    setTimeout(connectWebSocket, 1000);
+    console.log(`[WS] Getrennt. Reconnect in ${wsReconnectDelay / 1000}s...`);
+    setTimeout(connectWebSocket, wsReconnectDelay);
+    // Exponential Backoff
+    wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_MAX_DELAY);
+  };
+
+  ws.onerror = (err) => {
+    console.error('[WS] Fehler:', err);
   };
 }
 
 // Repos laden
 async function loadRepos() {
-  const res = await fetch(`${API_BASE}/api/repos`);
-  repos = await res.json();
-  renderRepos();
-  renderRepoDropdown();
+  try {
+    const res = await fetch(`${API_BASE}/api/repos`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    repos = await res.json();
+    renderRepos();
+    renderRepoDropdown();
+  } catch (err) {
+    console.error('[API] Repos laden fehlgeschlagen:', err);
+    alert('Fehler beim Laden der Repos. Server erreichbar?');
+  }
 }
 
 function renderRepos() {
   const list = document.getElementById('repos-list');
   list.innerHTML = repos.map(r => `
     <li>
-      <span><strong>${r.name}</strong> - ${r.path}</span>
-      <button onclick="deleteRepo('${r.name}')">x</button>
+      <span><strong>${escapeHTML(r.name)}</strong> - ${escapeHTML(r.path)}</span>
+      <button onclick="deleteRepo('${escapeHTML(r.name).replace(/'/g, "\\'")}')">x</button>
     </li>
   `).join('');
 }
@@ -54,7 +82,7 @@ function renderRepos() {
 function renderRepoDropdown() {
   const select = document.getElementById('task-repo');
   select.innerHTML = repos.map(r =>
-    `<option value="${r.path}">${r.name}</option>`
+    `<option value="${escapeHTML(r.path)}">${escapeHTML(r.name)}</option>`
   ).join('');
 }
 
@@ -64,27 +92,50 @@ async function addRepo() {
 
   if (!name || !path) return alert('Name und Pfad erforderlich!');
 
-  await fetch(`${API_BASE}/api/repos`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, path })
-  });
+  try {
+    const res = await fetch(`${API_BASE}/api/repos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, path })
+    });
 
-  document.getElementById('repo-name').value = '';
-  document.getElementById('repo-path').value = '';
-  loadRepos();
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`Fehler: ${data.error || 'Unbekannter Fehler'}`);
+      return;
+    }
+
+    document.getElementById('repo-name').value = '';
+    document.getElementById('repo-path').value = '';
+    loadRepos();
+  } catch (err) {
+    console.error('[API] Repo hinzufügen fehlgeschlagen:', err);
+    alert('Fehler beim Hinzufügen des Repos');
+  }
 }
 
 async function deleteRepo(name) {
-  await fetch(`${API_BASE}/api/repos/${name}`, { method: 'DELETE' });
-  loadRepos();
+  if (!confirm(`Repo "${name}" wirklich entfernen?`)) return;
+
+  try {
+    await fetch(`${API_BASE}/api/repos/${name}`, { method: 'DELETE' });
+    loadRepos();
+  } catch (err) {
+    console.error('[API] Repo löschen fehlgeschlagen:', err);
+    alert('Fehler beim Löschen des Repos');
+  }
 }
 
 // Queue laden
 async function loadQueue() {
-  const res = await fetch(`${API_BASE}/api/queue`);
-  queue = await res.json();
-  renderQueue();
+  try {
+    const res = await fetch(`${API_BASE}/api/queue`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    queue = await res.json();
+    renderQueue();
+  } catch (err) {
+    console.error('[API] Queue laden fehlgeschlagen:', err);
+  }
 }
 
 function renderQueue() {
@@ -92,11 +143,11 @@ function renderQueue() {
   list.innerHTML = queue.map(t => `
     <li>
       <div>
-        <span class="status-badge status-${t.status}">${t.status}</span>
-        <strong>${t.type}</strong>: ${t.description.substring(0, 50)}...
+        <span class="status-badge status-${escapeHTML(t.status)}">${escapeHTML(t.status)}</span>
+        <strong>${escapeHTML(t.type)}</strong>: ${escapeHTML(t.description.substring(0, 50))}...
       </div>
       <div>
-        ${t.status === 'failed' ? `<button class="retry-btn" onclick="retryTask('${t.id}')">Retry</button>` : ''}
+        ${t.status === 'failed' ? `<button class="retry-btn" onclick="retryTask('${escapeHTML(t.id)}')">Retry</button>` : ''}
       </div>
     </li>
   `).join('');
@@ -109,18 +160,49 @@ async function createTask() {
 
   if (!repo || !description) return alert('Repo und Beschreibung erforderlich!');
 
-  await fetch(`${API_BASE}/api/tasks`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo, type, description })
-  });
+  try {
+    const res = await fetch(`${API_BASE}/api/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo, type, description })
+    });
 
-  document.getElementById('task-description').value = '';
-  clearTerminal();
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`Fehler: ${data.error || 'Unbekannter Fehler'}`);
+      return;
+    }
+
+    document.getElementById('task-description').value = '';
+    clearTerminal();
+  } catch (err) {
+    console.error('[API] Task erstellen fehlgeschlagen:', err);
+    alert('Fehler beim Erstellen des Tasks');
+  }
 }
 
 async function retryTask(id) {
-  await fetch(`${API_BASE}/api/tasks/${id}/retry`, { method: 'POST' });
+  try {
+    await fetch(`${API_BASE}/api/tasks/${id}/retry`, { method: 'POST' });
+  } catch (err) {
+    console.error('[API] Retry fehlgeschlagen:', err);
+    alert('Fehler beim Retry');
+  }
+}
+
+async function abortTask() {
+  if (!confirm('Laufenden Task wirklich abbrechen?')) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tasks/abort`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.message || 'Kein Task läuft');
+    }
+  } catch (err) {
+    console.error('[API] Abort fehlgeschlagen:', err);
+    alert('Fehler beim Abbrechen');
+  }
 }
 
 // Terminal

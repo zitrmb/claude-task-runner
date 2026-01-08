@@ -5,9 +5,12 @@ import { getNextPendingTask, updateTask, appendLog } from './queue.js';
 import { runTests, detectTestFramework } from './testRunner.js';
 import { notifyFailure, notifySuccess } from './notifier.js';
 
+// Mutex für Thread-Safety
+let processingLock = Promise.resolve();
 let isProcessing = false;
 let currentTaskId = null;
 let currentBroadcast = null;
+let currentProcess = null; // Für Task-Abbruch
 
 // Hilfsfunktion: Log an Console UND Browser senden
 function log(message, taskId = currentTaskId) {
@@ -20,21 +23,31 @@ function log(message, taskId = currentTaskId) {
 }
 
 export async function processNextTask(broadcast) {
+  // Mutex: Nur ein Task gleichzeitig
   if (isProcessing) {
     return;
   }
 
+  // Atomares Lock setzen
+  let releaseLock;
+  const lockPromise = new Promise(resolve => { releaseLock = resolve; });
+  const previousLock = processingLock;
+  processingLock = lockPromise;
+
+  await previousLock; // Warte auf vorherigen Task
+
   const task = getNextPendingTask();
   if (!task) {
+    releaseLock();
     return;
   }
 
   currentTaskId = task.id;
   currentBroadcast = broadcast;
+  isProcessing = true;
 
   log(`[Worker] Starte Task: ${task.id}`);
   log(`[Worker] Beschreibung: ${task.description}`);
-  isProcessing = true;
 
   try {
     await executeTask(task, broadcast);
@@ -44,13 +57,48 @@ export async function processNextTask(broadcast) {
     broadcast('terminal:output', { taskId: task.id, text: `${error.stack}\n` });
   } finally {
     isProcessing = false;
+    currentProcess = null;
     log(`[Worker] Task beendet: ${task.id}`);
     currentTaskId = null;
+    releaseLock(); // Lock freigeben
   }
 }
 
+// Task-Abbruch Funktion
+export function abortCurrentTask() {
+  if (!isProcessing || !currentProcess) {
+    return { success: false, message: 'Kein Task läuft' };
+  }
+
+  try {
+    currentProcess.kill('SIGTERM');
+    setTimeout(() => {
+      if (currentProcess && !currentProcess.killed) {
+        currentProcess.kill('SIGKILL');
+      }
+    }, 5000);
+
+    if (currentTaskId) {
+      updateTask(currentTaskId, { status: 'failed' });
+      if (currentBroadcast) {
+        currentBroadcast('task:updated', { id: currentTaskId, status: 'failed' });
+        currentBroadcast('terminal:output', { taskId: currentTaskId, text: '\n[ABORTED] Task wurde abgebrochen!\n' });
+      }
+    }
+
+    return { success: true, message: 'Task wird abgebrochen...' };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+// Erlaubte Task-Typen (Whitelist)
+const VALID_TYPES = ['feature', 'bugfix', 'refactor'];
+
 async function executeTask(task, broadcast) {
-  const branchName = `${task.type}/${task.id}`;
+  // Task-Typ validieren
+  const safeType = VALID_TYPES.includes(task.type) ? task.type : 'task';
+  const branchName = `${safeType}/${task.id}`;
 
   // Pfad bereinigen (entferne eventuelle Anführungszeichen)
   const repoPath = task.repo.replace(/^['"]|['"]$/g, '');
@@ -169,8 +217,8 @@ Wenn gefixt, antworte mit "FIXES_COMPLETE"
   broadcast('terminal:output', { taskId: task.id, text: '[Git] Stage all changes...\n' });
   const addResult = await runCommand('git', ['add', '-A'], repoPath);
 
-  broadcast('terminal:output', { taskId: task.id, text: `[Git] Commit: [${task.type}] ${task.description.substring(0, 50)}...\n` });
-  const commitResult = await runCommand('git', ['commit', '-m', `[${task.type}] ${task.description}`], repoPath);
+  broadcast('terminal:output', { taskId: task.id, text: `[Git] Commit: [${safeType}] ${task.description.substring(0, 50)}...\n` });
+  const commitResult = await runCommand('git', ['commit', '-m', `[${safeType}] ${task.description}`], repoPath);
   if (commitResult.output) {
     broadcast('terminal:output', { taskId: task.id, text: `[Git] ${commitResult.output}\n` });
   }
@@ -213,6 +261,9 @@ Wenn gefixt, antworte mit "FIXES_COMPLETE"
   notifySuccess(task);
 }
 
+// Task-Timeout: 10 Minuten
+const TASK_TIMEOUT_MS = 10 * 60 * 1000;
+
 async function runClaude(prompt, cwd, taskId, broadcast) {
   return new Promise((resolve) => {
     // Args für claude ohne shell substitution
@@ -224,6 +275,7 @@ async function runClaude(prompt, cwd, taskId, broadcast) {
     ];
 
     let claude;
+    let timeoutId;
     console.log(`[Claude] Running: claude --output-format stream-json... in ${cwd}`);
     broadcast('terminal:output', { taskId, text: `[Claude] Starte Claude CLI...\n` });
     try {
@@ -233,8 +285,25 @@ async function runClaude(prompt, cwd, taskId, broadcast) {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, FORCE_COLOR: '0' }
       });
+
+      // Für Task-Abbruch speichern
+      currentProcess = claude;
+
       console.log(`[Claude] Spawn successful, PID: ${claude.pid}`);
       broadcast('terminal:output', { taskId, text: `[Claude] Prozess gestartet (PID: ${claude.pid})\n` });
+
+      // Timeout setzen
+      timeoutId = setTimeout(() => {
+        if (claude && !claude.killed) {
+          broadcast('terminal:output', { taskId, text: `\n[TIMEOUT] Task dauert zu lange (>${TASK_TIMEOUT_MS / 60000} min), wird abgebrochen...\n` });
+          claude.kill('SIGTERM');
+          setTimeout(() => {
+            if (claude && !claude.killed) {
+              claude.kill('SIGKILL');
+            }
+          }, 5000);
+        }
+      }, TASK_TIMEOUT_MS);
 
       // Prompt über stdin senden
       console.log(`[Claude] Sending prompt via stdin (${prompt.length} chars)...`);
@@ -251,6 +320,7 @@ async function runClaude(prompt, cwd, taskId, broadcast) {
     let jsonBuffer = '';  // Buffer für unvollständige JSON-Zeilen
 
     claude.on('error', (err) => {
+      clearTimeout(timeoutId);
       broadcast('terminal:output', { taskId, text: `[ERROR] Claude error: ${err.message}\n` });
       resolve({ success: false, output: err.message });
     });
@@ -379,6 +449,8 @@ async function runClaude(prompt, cwd, taskId, broadcast) {
     });
 
     claude.on('close', (code) => {
+      clearTimeout(timeoutId); // Timeout aufräumen
+      currentProcess = null;
       console.log(`[Claude] Process exited with code ${code}`);
       broadcast('terminal:output', { taskId, text: `\n[Claude] Beendet mit Code ${code}\n` });
       resolve({

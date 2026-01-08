@@ -156,9 +156,8 @@ main {
   margin-bottom: 0;
 }
 
-.btn-clear {
+.btn-clear, .btn-abort {
   padding: 6px 14px;
-  background: #e94560;
   color: white;
   border: none;
   border-radius: 6px;
@@ -166,10 +165,23 @@ main {
   font-size: 0.85rem;
   font-weight: 600;
   transition: background 0.2s;
+  margin-left: 8px;
+}
+
+.btn-clear {
+  background: #e94560;
 }
 
 .btn-clear:hover {
   background: #c73e54;
+}
+
+.btn-abort {
+  background: #ff9800;
+}
+
+.btn-abort:hover {
+  background: #e68900;
 }
 
 #terminal {

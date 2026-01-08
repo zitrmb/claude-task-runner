@@ -248,6 +248,7 @@ async function runClaude(prompt, cwd, taskId, broadcast) {
     }
 
     let fullOutput = '';
+    let jsonBuffer = '';  // Buffer für unvollständige JSON-Zeilen
 
     claude.on('error', (err) => {
       broadcast('terminal:output', { taskId, text: `[ERROR] Claude error: ${err.message}\n` });
@@ -257,11 +258,25 @@ async function runClaude(prompt, cwd, taskId, broadcast) {
     claude.stdout.on('data', (data) => {
       const rawData = data.toString();
       console.log(`[Claude stdout] Received ${rawData.length} bytes`);
-      const lines = rawData.split('\n').filter(Boolean);
+
+      // Buffer mit neuen Daten kombinieren
+      jsonBuffer += rawData;
+
+      // Nach kompletten JSON-Zeilen suchen (enden mit })
+      const lines = jsonBuffer.split('\n');
+      jsonBuffer = lines.pop() || '';  // Letzte (möglicherweise unvollständige) Zeile behalten
 
       for (const line of lines) {
+        if (!line.trim()) continue;
+
+        let json;
         try {
-          const json = JSON.parse(line);
+          json = JSON.parse(line);
+        } catch (e) {
+          // Keine Ausgabe von rohem JSON - nur loggen
+          console.log(`[Claude] Skipped non-JSON line (${line.length} chars)`);
+          continue;
+        }
 
           // Verschiedene Event-Typen verarbeiten
           switch (json.type) {
@@ -352,20 +367,9 @@ async function runClaude(prompt, cwd, taskId, broadcast) {
               break;
 
             default:
-              // Unbekannte Events auch loggen (Debug)
-              if (json.type) {
-                broadcast('terminal:output', {
-                  taskId,
-                  text: `[${json.type}] ${json.subtype || ''}\n`
-                });
-              }
+              // Unbekannte Events ignorieren (kein Output)
+              break;
           }
-        } catch (e) {
-          // Kein gültiges JSON, raw output anzeigen
-          if (line.trim()) {
-            broadcast('terminal:output', { taskId, text: `${line}\n` });
-          }
-        }
       }
     });
 

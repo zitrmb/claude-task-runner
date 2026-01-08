@@ -70,5 +70,17 @@
     "logs": [],
     "createdAt": "2026-01-08T01:32:00.072Z",
     "completedAt": "2026-01-08T01:39:33.312Z"
+  },
+  {
+    "id": "task_1767836804832",
+    "repo": "'/Users/secretstudios/Documents/App & Skripte/Fertig/Nützlich/Blueberry Systems Apps/decision-mind-map'",
+    "type": "bugfix",
+    "description": "Wenn ich auf eine Verbindung löschen klicke, dann verschwindet diese nicht direkt. ich muss dann die seite neuladen, damit ich die änderung dann auch sehe. untersuche das und löse das mit ultrathink.",
+    "status": "done",
+    "retries": 0,
+    "branch": "bugfix/task_1767836804832",
+    "logs": [],
+    "createdAt": "2026-01-08T01:46:44.832Z",
+    "completedAt": "2026-01-08T01:50:26.378Z"
   }
 ]

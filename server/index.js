@@ -4,7 +4,7 @@ import { createServer } from 'http';
 import { existsSync, statSync } from 'fs';
 import { resolve, normalize } from 'path';
 import { CONFIG } from './config.js';
-import { initQueue, getQueue, addTask, updateTask } from './queue.js';
+import { initQueue, getQueue, addTask, updateTask, clearQueue, deleteTask, getStats, moveTask } from './queue.js';
 import { getRepos, addRepo, removeRepo } from './repos.js';
 import { processNextTask, abortCurrentTask } from './executor.js';
 
@@ -149,8 +149,10 @@ app.get('/api/queue', (req, res) => {
   res.json(getQueue());
 });
 
+const VALID_PRIORITIES = ['high', 'normal', 'low'];
+
 app.post('/api/tasks', (req, res) => {
-  const { repo, type, description } = req.body;
+  const { repo, type, description, priority = 'normal' } = req.body;
 
   // Repo-Pfad validieren
   const pathValidation = validatePath(repo);
@@ -163,6 +165,11 @@ app.post('/api/tasks', (req, res) => {
     return res.status(400).json({ error: `Ungültiger Typ. Erlaubt: ${VALID_TASK_TYPES.join(', ')}` });
   }
 
+  // Priorität validieren
+  if (!VALID_PRIORITIES.includes(priority)) {
+    return res.status(400).json({ error: `Ungültige Priorität. Erlaubt: ${VALID_PRIORITIES.join(', ')}` });
+  }
+
   // Beschreibung validieren
   if (!description || typeof description !== 'string') {
     return res.status(400).json({ error: 'Beschreibung erforderlich' });
@@ -171,9 +178,41 @@ app.post('/api/tasks', (req, res) => {
     return res.status(400).json({ error: `Beschreibung zu lang (max ${MAX_DESCRIPTION_LENGTH} Zeichen)` });
   }
 
-  const task = addTask(repo, type, description);
+  const task = addTask(repo, type, description, priority);
   broadcast('task:added', task);
   res.json(task);
+});
+
+// Task verschieben (up/down)
+app.post('/api/tasks/:id/move', (req, res) => {
+  const { direction } = req.body; // 'up' oder 'down'
+  if (!['up', 'down'].includes(direction)) {
+    return res.status(400).json({ error: 'Direction muss "up" oder "down" sein' });
+  }
+
+  const result = moveTask(req.params.id, direction);
+  if (result.success) {
+    broadcast('queue:updated', getQueue());
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// Task Priorität ändern
+app.patch('/api/tasks/:id/priority', (req, res) => {
+  const { priority } = req.body;
+  if (!VALID_PRIORITIES.includes(priority)) {
+    return res.status(400).json({ error: `Ungültige Priorität. Erlaubt: ${VALID_PRIORITIES.join(', ')}` });
+  }
+
+  const task = updateTask(req.params.id, { priority });
+  if (task) {
+    broadcast('queue:updated', getQueue());
+    res.json(task);
+  } else {
+    res.status(404).json({ error: 'Task nicht gefunden' });
+  }
 });
 
 app.post('/api/tasks/:id/retry', (req, res) => {
@@ -193,6 +232,36 @@ app.post('/api/tasks/abort', (req, res) => {
   } else {
     res.status(400).json(result);
   }
+});
+
+// Einzelnen Task löschen
+app.delete('/api/tasks/:id', (req, res) => {
+  const result = deleteTask(req.params.id);
+  if (result.success) {
+    broadcast('queue:updated', getQueue());
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// Queue leeren
+app.delete('/api/queue', (req, res) => {
+  const filter = req.query.filter || 'all'; // all, done, failed, completed
+  const validFilters = ['all', 'done', 'failed', 'completed'];
+
+  if (!validFilters.includes(filter)) {
+    return res.status(400).json({ error: `Ungültiger Filter. Erlaubt: ${validFilters.join(', ')}` });
+  }
+
+  const result = clearQueue(filter);
+  broadcast('queue:updated', getQueue());
+  res.json(result);
+});
+
+// Statistiken
+app.get('/api/stats', (req, res) => {
+  res.json(getStats());
 });
 
 // Queue initialisieren

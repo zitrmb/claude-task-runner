@@ -19,8 +19,43 @@ body {
 
 header h1 {
   font-size: 1.8rem;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
   color: #00d9ff;
+}
+
+/* Stats Bar */
+.stats-bar {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+  margin-bottom: 15px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #16213e;
+  padding: 8px 12px;
+  border-radius: 8px;
+  min-width: 60px;
+}
+
+.stat-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.stat-value.pending { color: #ffc107; }
+.stat-value.running { color: #00d9ff; }
+.stat-value.done { color: #4caf50; }
+.stat-value.failed { color: #e94560; }
+
+.stat-label {
+  font-size: 0.7rem;
+  color: #888;
+  text-transform: uppercase;
 }
 
 main {
@@ -95,7 +130,62 @@ main {
   cursor: pointer;
 }
 
+/* Queue Header */
+.queue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.queue-header h2 {
+  margin-bottom: 0;
+}
+
+.queue-actions select {
+  padding: 6px 10px;
+  background: #1a1a2e;
+  color: #eee;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.task-info {
+  flex: 1;
+}
+
+.task-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.delete-btn {
+  background: #444;
+  color: #aaa;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.delete-btn:hover {
+  background: #e94560;
+  color: white;
+}
+
 /* Task Form */
+.task-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.task-row select {
+  flex: 1;
+}
+
 #task-panel select, #task-panel textarea {
   width: 100%;
   padding: 10px;
@@ -104,6 +194,29 @@ main {
   border-radius: 6px;
   background: #1a1a2e;
   color: #eee;
+}
+
+/* Priority styles */
+.priority-high {
+  border-left: 3px solid #ff5722 !important;
+}
+
+.priority-low {
+  opacity: 0.7;
+}
+
+.prio-icon {
+  margin-right: 5px;
+}
+
+.prio-select {
+  padding: 2px 5px;
+  background: #1a1a2e;
+  color: #eee;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
 }
 
 #task-panel textarea {

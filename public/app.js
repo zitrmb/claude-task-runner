@@ -29,13 +29,20 @@ function connectWebSocket() {
       case 'task:added':
         queue.push(data);
         renderQueue();
+        loadStats();
         break;
       case 'task:updated':
         const idx = queue.findIndex(t => t.id === data.id);
         if (idx !== -1) {
           queue[idx] = { ...queue[idx], ...data };
           renderQueue();
+          loadStats();
         }
+        break;
+      case 'queue:updated':
+        queue = data;
+        renderQueue();
+        loadStats();
         break;
       case 'terminal:output':
         appendTerminal(data.text);
@@ -140,22 +147,47 @@ async function loadQueue() {
 
 function renderQueue() {
   const list = document.getElementById('queue-list');
+  const prioIcons = { high: '🔥', normal: '', low: '⬇' };
+
   list.innerHTML = queue.map(t => `
-    <li>
-      <div>
+    <li class="priority-${escapeHTML(t.priority || 'normal')}">
+      <div class="task-info">
         <span class="status-badge status-${escapeHTML(t.status)}">${escapeHTML(t.status)}</span>
-        <strong>${escapeHTML(t.type)}</strong>: ${escapeHTML(t.description.substring(0, 50))}...
+        ${t.priority === 'high' ? '<span class="prio-icon">🔥</span>' : ''}
+        <strong>${escapeHTML(t.type)}</strong>: ${escapeHTML(t.description.substring(0, 45))}...
       </div>
-      <div>
+      <div class="task-actions">
+        ${t.status === 'pending' ? `
+          <select class="prio-select" onchange="setPriority('${escapeHTML(t.id)}', this.value)">
+            <option value="high" ${t.priority === 'high' ? 'selected' : ''}>🔥</option>
+            <option value="normal" ${t.priority === 'normal' || !t.priority ? 'selected' : ''}>—</option>
+            <option value="low" ${t.priority === 'low' ? 'selected' : ''}>⬇</option>
+          </select>
+        ` : ''}
         ${t.status === 'failed' ? `<button class="retry-btn" onclick="retryTask('${escapeHTML(t.id)}')">Retry</button>` : ''}
+        ${t.status !== 'running' && t.status !== 'testing' ? `<button class="delete-btn" onclick="deleteTask('${escapeHTML(t.id)}')">✕</button>` : ''}
       </div>
     </li>
   `).join('');
 }
 
+// Priorität ändern
+async function setPriority(id, priority) {
+  try {
+    await fetch(`${API_BASE}/api/tasks/${id}/priority`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priority })
+    });
+  } catch (err) {
+    console.error('[API] Priority ändern fehlgeschlagen:', err);
+  }
+}
+
 async function createTask() {
   const repo = document.getElementById('task-repo').value;
   const type = document.getElementById('task-type').value;
+  const priority = document.getElementById('task-priority').value;
   const description = document.getElementById('task-description').value.trim();
 
   if (!repo || !description) return alert('Repo und Beschreibung erforderlich!');
@@ -164,7 +196,7 @@ async function createTask() {
     const res = await fetch(`${API_BASE}/api/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repo, type, description })
+      body: JSON.stringify({ repo, type, description, priority })
     });
 
     const data = await res.json();
@@ -174,6 +206,7 @@ async function createTask() {
     }
 
     document.getElementById('task-description').value = '';
+    document.getElementById('task-priority').value = 'normal';
     clearTerminal();
   } catch (err) {
     console.error('[API] Task erstellen fehlgeschlagen:', err);
@@ -205,6 +238,96 @@ async function abortTask() {
   }
 }
 
+// Einzelnen Task löschen
+async function deleteTask(id) {
+  if (!confirm('Task wirklich löschen?')) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tasks/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.message || 'Fehler beim Löschen');
+    }
+  } catch (err) {
+    console.error('[API] Delete fehlgeschlagen:', err);
+    alert('Fehler beim Löschen');
+  }
+}
+
+// Queue leeren
+async function clearQueueTasks(filter = 'all') {
+  const filterLabels = {
+    all: 'alle Tasks (außer laufende)',
+    done: 'erledigte Tasks',
+    failed: 'fehlgeschlagene Tasks',
+    completed: 'alle abgeschlossenen Tasks'
+  };
+
+  if (!confirm(`Wirklich ${filterLabels[filter]} löschen?`)) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/queue?filter=${filter}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok) {
+      console.log(`[Queue] ${data.removed} Tasks entfernt`);
+    }
+  } catch (err) {
+    console.error('[API] Queue clear fehlgeschlagen:', err);
+    alert('Fehler beim Leeren der Queue');
+  }
+}
+
+// Statistiken laden
+async function loadStats() {
+  try {
+    const res = await fetch(`${API_BASE}/api/stats`);
+    if (!res.ok) return;
+    const stats = await res.json();
+    renderStats(stats);
+  } catch (err) {
+    console.error('[API] Stats laden fehlgeschlagen:', err);
+  }
+}
+
+function renderStats(stats) {
+  const container = document.getElementById('stats-display');
+  if (!container) return;
+
+  const avgMin = Math.floor(stats.avgDuration / 60);
+  const avgSec = stats.avgDuration % 60;
+
+  container.innerHTML = `
+    <div class="stat-item">
+      <span class="stat-value">${stats.total}</span>
+      <span class="stat-label">Total</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value pending">${stats.pending}</span>
+      <span class="stat-label">Pending</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value running">${stats.running + stats.testing}</span>
+      <span class="stat-label">Running</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value done">${stats.done}</span>
+      <span class="stat-label">Done</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value failed">${stats.failed}</span>
+      <span class="stat-label">Failed</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value">${stats.successRate}%</span>
+      <span class="stat-label">Success</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value">${avgMin}:${avgSec.toString().padStart(2, '0')}</span>
+      <span class="stat-label">Avg Time</span>
+    </div>
+  `;
+}
+
 // Terminal
 function appendTerminal(text) {
   const terminal = document.getElementById('terminal');
@@ -220,3 +343,4 @@ function clearTerminal() {
 connectWebSocket();
 loadRepos();
 loadQueue();
+loadStats();

@@ -10,6 +10,7 @@
   <div class="container">
     <header>
       <h1>Claude Task Runner</h1>
+      <div id="stats-display" class="stats-bar"></div>
     </header>
 
     <main>
@@ -28,18 +29,36 @@
       <section class="panel" id="task-panel">
         <h2>Neuer Task</h2>
         <select id="task-repo"></select>
-        <select id="task-type">
-          <option value="feature">Feature</option>
-          <option value="bugfix">Bugfix</option>
-          <option value="refactor">Refactor</option>
-        </select>
+        <div class="task-row">
+          <select id="task-type">
+            <option value="feature">Feature</option>
+            <option value="bugfix">Bugfix</option>
+            <option value="refactor">Refactor</option>
+          </select>
+          <select id="task-priority">
+            <option value="normal">Normal</option>
+            <option value="high">🔥 High</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
         <textarea id="task-description" placeholder="Beschreibe den Task..."></textarea>
         <button onclick="createTask()">Task starten</button>
       </section>
 
       <!-- Queue -->
       <section class="panel" id="queue-panel">
-        <h2>Task Queue</h2>
+        <div class="queue-header">
+          <h2>Task Queue</h2>
+          <div class="queue-actions">
+            <select id="clear-filter" onchange="this.value && clearQueueTasks(this.value); this.value='';">
+              <option value="">🗑 Clear...</option>
+              <option value="done">Erledigte</option>
+              <option value="failed">Fehlgeschlagene</option>
+              <option value="completed">Alle abgeschl.</option>
+              <option value="all">Alle (außer laufende)</option>
+            </select>
+          </div>
+        </div>
         <ul id="queue-list"></ul>
       </section>
 

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Task Runner</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Claude Task Runner</h1>
+    </header>
+
+    <main>
+      <!-- Repo Management -->
+      <section class="panel" id="repos-panel">
+        <h2>Repositories</h2>
+        <div class="repo-form">
+          <input type="text" id="repo-name" placeholder="Name (z.B. my-project)">
+          <input type="text" id="repo-path" placeholder="Pfad (z.B. /Users/...)">
+          <button onclick="addRepo()">+ Hinzufuegen</button>
+        </div>
+        <ul id="repos-list"></ul>
+      </section>
+
+      <!-- Task erstellen -->
+      <section class="panel" id="task-panel">
+        <h2>Neuer Task</h2>
+        <select id="task-repo"></select>
+        <select id="task-type">
+          <option value="feature">Feature</option>
+          <option value="bugfix">Bugfix</option>
+          <option value="refactor">Refactor</option>
+        </select>
+        <textarea id="task-description" placeholder="Beschreibe den Task..."></textarea>
+        <button onclick="createTask()">Task starten</button>
+      </section>
+
+      <!-- Queue -->
+      <section class="panel" id="queue-panel">
+        <h2>Task Queue</h2>
+        <ul id="queue-list"></ul>
+      </section>
+
+      <!-- Terminal -->
+      <section class="panel" id="terminal-panel">
+        <div class="terminal-header">
+          <h2>Live Output</h2>
+          <button onclick="clearTerminal()" class="btn-clear">Clear</button>
+        </div>
+        <div id="terminal"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

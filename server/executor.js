@@ -280,15 +280,36 @@ async function runClaude(prompt, cwd, taskId, broadcast) {
               if (json.message?.content) {
                 for (const block of json.message.content) {
                   if (block.type === 'text') {
-                    broadcast('terminal:output', { taskId, text: block.text + '\n' });
+                    // Text-Antworten kürzen (max 150 Zeichen pro Ausgabe)
+                    const textPreview = block.text.substring(0, 150);
+                    broadcast('terminal:output', {
+                      taskId,
+                      text: textPreview + (block.text.length > 150 ? '...\n' : '\n')
+                    });
                     fullOutput += block.text;
                   }
                   if (block.type === 'tool_use') {
-                    // Tool-Aufruf mit Details
-                    const inputPreview = JSON.stringify(block.input || {}).substring(0, 200);
+                    // Tool-Aufruf: Nur Name und kurze Info
+                    const input = block.input || {};
+                    let shortInfo = '';
+
+                    // Je nach Tool-Typ relevante Info extrahieren
+                    if (input.file_path) {
+                      const fileName = input.file_path.split('/').pop();
+                      shortInfo = fileName;
+                    } else if (input.pattern) {
+                      shortInfo = input.pattern;
+                    } else if (input.command) {
+                      shortInfo = input.command.substring(0, 50) + (input.command.length > 50 ? '...' : '');
+                    } else if (input.prompt) {
+                      shortInfo = input.prompt.substring(0, 40) + '...';
+                    } else {
+                      shortInfo = JSON.stringify(input).substring(0, 60) + '...';
+                    }
+
                     broadcast('terminal:output', {
                       taskId,
-                      text: `\n┌─ [Tool] ${block.name}\n│  ${inputPreview}${inputPreview.length >= 200 ? '...' : ''}\n`
+                      text: `┌─ [${block.name}] ${shortInfo}\n`
                     });
                   }
                 }
@@ -296,15 +317,18 @@ async function runClaude(prompt, cwd, taskId, broadcast) {
               break;
 
             case 'user':
-              // Tool-Ergebnisse
+              // Tool-Ergebnisse: Nur Status und erste Zeile
               if (json.message?.content) {
                 for (const block of json.message.content) {
                   if (block.type === 'tool_result') {
-                    const resultPreview = String(block.content || '').substring(0, 300);
-                    const status = block.is_error ? 'ERROR' : 'OK';
+                    const content = String(block.content || '');
+                    // Nur erste Zeile oder max 80 Zeichen
+                    const firstLine = content.split('\n')[0].substring(0, 80);
+                    const status = block.is_error ? '✗' : '✓';
+                    const statusColor = block.is_error ? 'ERROR' : 'OK';
                     broadcast('terminal:output', {
                       taskId,
-                      text: `└─ [Result: ${status}] ${resultPreview}${resultPreview.length >= 300 ? '...' : ''}\n`
+                      text: `└─ [${statusColor}] ${firstLine}${content.length > 80 ? '...' : ''}\n`
                     });
                   }
                 }
